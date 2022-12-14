@@ -37,7 +37,7 @@ int lastDistance = 0;
 float timeMultiplier = 1.0;
 long lastTimeNormal = 0;
 
-const int dutyCyclemax = 180;
+const int dutyCyclemax = 100;
 const int dutyCyclemin = 80;
 const int dutyCycleControlFactor = dutyCyclemax/100;
 
@@ -201,8 +201,8 @@ void loop() {
   float pmwRight;
   float pmwLeft;
 
-  float pmwFast = dutyCyclemax + abs(distance)/(float)maxDistance*90*timeMultiplier*(dutyCycleControlFactor);
-  float pmwSlow = dutyCyclemax -abs(distance)/(float)maxDistance*40*timeMultiplier*sq(dutyCycleControlFactor);
+  float pmwFast = dutyCyclemax + abs(distance)/(float)maxDistance*70*timeMultiplier*(dutyCycleControlFactor);
+  float pmwSlow = dutyCyclemax -abs(distance)/(float)maxDistance*30*timeMultiplier*sq(dutyCycleControlFactor);
 
   if (pmwFast > 255){
     pmwFast = 255;
