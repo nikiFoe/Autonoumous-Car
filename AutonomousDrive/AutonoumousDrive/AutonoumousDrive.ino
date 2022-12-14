@@ -201,8 +201,8 @@ void loop() {
   float pmwRight;
   float pmwLeft;
 
-  float pmwFast = dutyCyclemax + abs(distance)/(float)maxDistance*70*timeMultiplier*(dutyCycleControlFactor);
-  float pmwSlow = dutyCyclemax -abs(distance)/(float)maxDistance*30*timeMultiplier*sq(dutyCycleControlFactor);
+  float pmwFast = dutyCyclemax + abs(distance)/(float)maxDistance*90*timeMultiplier*(dutyCycleControlFactor);
+  float pmwSlow = dutyCyclemax -abs(distance)/(float)maxDistance*40*timeMultiplier*sq(dutyCycleControlFactor);
 
   if (pmwFast > 255){
     pmwFast = 255;
