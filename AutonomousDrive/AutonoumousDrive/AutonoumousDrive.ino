@@ -3,10 +3,18 @@
 #include <SPI.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <math.h>
+#include <Wire.h>
+#include <VL53L0XMod.h>
+#include "SlowSoftI2CMaster.h"
 
 #define HIGH_SPEED#
 VL53L0X sensor_R;
 VL53L0X sensor_L;
+
+VL53L0XMod sensor[3];
+int distances[3];
+int sensorCount = 3;
 
 
 #define M1INA 13 //Right
@@ -32,7 +40,9 @@ const int pwmChannel_Right = 0;
 const int pwmChannel_Left = 1;
 const int resolution = 8;
 int distanceRight = 0;
+int distanceRightBack = 0;
 int distanceLeft = 0;
+float headerAngle = 0.0;
 int lastDistance = 0;
 float timeMultiplier = 1.0;
 long lastTimeNormal = 0;
@@ -48,6 +58,9 @@ int dutyCycle = 200;
 
 float distance = 0.0;
 
+int pinLidarRightFront = 16;
+int pinLidarRightBack = 19;
+int lidarSwitchCounter = 0; 
 
 WiFiClient oEspClient;
 PubSubClient oClient(oEspClient);
@@ -114,7 +127,7 @@ void setup() {
   pinMode(M2INA, OUTPUT); 
   pinMode(M2INB, OUTPUT); 
   //pinMode(M2PWM, OUTPUT); 
-  //Wire1.begin(23, 22);
+
 
   //Connection Wifi and MQTT
   //oClient.subscribe("Niklas/TimerMultiplier");
@@ -128,31 +141,18 @@ void setup() {
   ledcAttachPin(M1PWM, pwmChannel_Right);
   ledcAttachPin(M2PWM, pwmChannel_Left);
 
-  Wire1.begin(23,22);
-  Wire.begin(21, 17);
+  sensor[0].setI2CPin(22, 23); // Sensor Right Front
+  sensor[1].setI2CPin(17, 21); // Sensor Left
+  sensor[2].setI2CPin(16, 19); // Sensor Right Back
 
-  sensor_L.setBus(&Wire);
-  sensor_R.setBus(&Wire1);
-
-  sensor_L.setTimeout(500);
-  if (!sensor_L.init())
-  {
-    Serial.println("Failed to detect and initialize sensor L!");
-    while (1) {}
+   for (int i = 0; i < sensorCount; i++) {
+    sensor[i].init();
+    sensor[i].setTimeout(50);
+    sensor[i].setMeasurementTimingBudget(100);
+    Serial.print("Sensor ");
+    Serial.print(i);
+    Serial.println(" init");
   }
-
-  sensor_R.setTimeout(500);
-  if (!sensor_R.init())
-  {
-    Serial.println("Failed to detect and initialize sensor R!");
-    while (1) {}
-  }
-
-  //sensor_L.setMeasurementTimingBudget(100000);
-  //sensor_R.setMeasurementTimingBudget(100000);
-  sensor_L.startContinuous();
-  sensor_R.startContinuous();
-
   digitalWrite(M1INA, HIGH);  
   digitalWrite(M1INB, LOW);
   digitalWrite(M2INA, HIGH);  
@@ -165,13 +165,20 @@ void loop() {
 
 
   //Lidar Measurment
-  distanceRight = sensor_R.readRangeContinuousMillimeters();
-  //Serial.print("Distance Right (mm): "); Serial.println(distanceRight);
-  //Serial.println("");
 
-  distanceLeft = sensor_L.readRangeContinuousMillimeters();
-  //Serial.print("Distance Left(mm): "); Serial.println(distanceLeft);
-  //Serial.println("");
+  for (int i = 0; i < sensorCount; i++) {
+      distances[i] = sensor[i].readRangeSingleMillimeters();
+      if (distances[i] == 65535) distances[i] = -1; //failed to measure distance
+      if (distances[i] >= 8190) distances[i] = 0;   
+  }
+
+  distanceRightBack = distances[2];
+  distanceRight = distances[0];
+  distanceLeft = distances[1];
+  
+  //}  
+  headerAngle = atan2((float)(distanceRightBack-distanceRight), 70.0)*180.0/3.1415; 
+  Serial.print("Header Angle: "); Serial.println(headerAngle);
   
 
   //Serial.print("Distance (mm): "); Serial.println(distance);
@@ -182,12 +189,12 @@ void loop() {
   if(distanceLeft > maxDistance){
     distanceLeft = maxDistance;
   }
-  distance = (float)distanceRight - (float)distanceLeft -5;
+  distance = (float)distanceRight - (float)distanceLeft - 5.0;
   //Serial.println(distance);
 
   //Serial.print("Distance: "); Serial.println((abs(lastDistance) - abs(distance)));
   long currentTime = millis();
-  if ((abs(distance) - abs(lastDistance) ) > 100){
+  if ((abs(distance) - abs(lastDistance) ) > 100.0){
     timeMultiplier = ((float)currentTime - (float)lastTimeNormal)/1000.0;
   }else{
     lastTimeNormal = currentTime;
@@ -214,13 +221,13 @@ void loop() {
 
   if (true){
     //Serial.println("Motor On");
-    if(distance>= -2 && distance<=2){
+    if(distance>= -2.0 && distance<=2.0){
       pmwRight = dutyCyclemax;
       pmwLeft = dutyCyclemax;
-    }else if(distance < -2){
+    }else if(distance < -2.0){
       pmwRight = pmwFast;
       pmwLeft = pmwSlow;
-    } else if (distance > 2){
+    } else if (distance > 2.0){
       pmwLeft = pmwFast;
       pmwRight = pmwSlow;
     }
@@ -233,6 +240,8 @@ void loop() {
   //Serial.print("PMW Right");Serial.println(pmwRight);
   //Serial.print("PMW Left");Serial.println(pmwLeft);
 
+  sprintf(acMsg,"%f", headerAngle);
+  oClient.publish("Niklas/HeaderAngle", &acMsg[0]);
   sprintf(acMsg,"%f", timeMultiplier);
   oClient.publish("Niklas/TimerMultiplier", &acMsg[0]);
   sprintf(acMsg,"%f", distance);
