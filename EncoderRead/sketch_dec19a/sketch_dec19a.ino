@@ -18,8 +18,8 @@ const int resolution = 8;
 const int pwmChannel_Right = 0;
 float dutyCyclemax = 70;
 
-long newposition;
-long oldposition = 0;
+float newposition;
+float oldposition = 0;
 unsigned long newtime;
 unsigned long oldtime = 0;
 float vel;
@@ -50,13 +50,21 @@ void setup() {
 }
 
 void loop() {
-  newposition = (float)interrupts_A;
-  newtime = millis();
-  vel = ((float)newposition-(float)oldposition) * 1000.0 /(((float)newtime-(float)oldtime)*12.0*47.0);
-  Serial.print ("speed = ");
-  Serial.println (vel);
-  oldposition = newposition;
-  oldtime = newtime;
+  static unsigned long ulNextTime=0+5; 
+
+  long ulTime= millis();
+  if(ulTime>=ulNextTime)
+  {
+    newposition = (float)interrupts_A;
+    newtime = millis();
+    vel = ((float)newposition-(float)oldposition) * 1000.0 /(((float)newtime-(float)oldtime)*12.0*47.0);
+    Serial.print ("speed = ");
+    Serial.println (vel*2*3.1415*0.035);
+    oldposition = newposition;
+    oldtime = newtime;
+    ulNextTime += 5;
+  }
+  
 
   ////Serial.println((interrupts_B + interrupts_A));
   ledcWrite(pwmChannel_Right, dutyCyclemax);
@@ -64,6 +72,6 @@ void loop() {
     dutyCyclemax+=1;
   }
   
-  delay(5);
+  //delay(5);
   counter += 1;
 }

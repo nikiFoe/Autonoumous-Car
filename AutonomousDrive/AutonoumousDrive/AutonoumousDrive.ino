@@ -62,8 +62,39 @@ int pinLidarRightFront = 16;
 int pinLidarRightBack = 19;
 int lidarSwitchCounter = 0; 
 
+
+//Encoder Variables Right Motor
+const int encoder_A_Right = 18;
+long newposition_Encoder_Right;
+long oldposition_Encoder_Right = 0;
+unsigned long newtime_Encoder_Right;
+unsigned long oldtime_Encoder_Right = 0;
+float vel_tire_Right;
+volatile int interrupts_A_Right = 0;
+
+//Encoder Variables Left Motor
+const int encoder_A_Left = 5;
+long newposition_Encoder_Left;
+long oldposition_Encoder_Left = 0;
+unsigned long newtime_Encoder_Left;
+unsigned long oldtime_Encoder_Left = 0;
+float vel_tire_Left;
+volatile int interrupts_A_Left = 0;
+
+
+
 WiFiClient oEspClient;
 PubSubClient oClient(oEspClient);
+
+
+//Interrupt Function for Encoder Count
+void interruptFunction_A_Right() {
+  interrupts_A_Right += 1;
+}
+
+void interruptFunction_A_Left() {
+  interrupts_A_Left += 1;
+}
 
 //MQTT Receive Callback
 void fcMqttCallback(char* pcTopic, byte* pcPayload, unsigned int iLength)
@@ -128,7 +159,6 @@ void setup() {
   pinMode(M2INB, OUTPUT); 
   //pinMode(M2PWM, OUTPUT); 
 
-
   //Connection Wifi and MQTT
   //oClient.subscribe("Niklas/TimerMultiplier");
   connectToWifi();  
@@ -157,9 +187,18 @@ void setup() {
   digitalWrite(M1INB, LOW);
   digitalWrite(M2INA, HIGH);  
   digitalWrite(M2INB, LOW);
+  
+
+
+  //Encoder Interrupt Setup
+  attachInterrupt(encoder_A_Right, interruptFunction_A_Right, FALLING);
+  attachInterrupt(encoder_A_Left, interruptFunction_A_Left, FALLING);
+
 }
 
 void loop() {
+  static unsigned long ulNextTime=0+5; 
+
   //For MQTT Message
   char acMsg[100];
 
@@ -239,7 +278,29 @@ void loop() {
   ledcWrite(pwmChannel_Left, pmwLeft);
   //Serial.print("PMW Right");Serial.println(pmwRight);
   //Serial.print("PMW Left");Serial.println(pmwLeft);
+  
 
+  //Calculate Tire Speed with Encoder Data
+  long ulTime= millis();
+  if(ulTime>=ulNextTime)
+  {
+    newposition_Encoder_Right = interrupts_A_Right;
+    newposition_Encoder_Left = interrupts_A_Left;
+    newtime_Encoder_Right = millis();
+    newtime_Encoder_Left = millis();
+    vel_tire_Right = ((float)newposition_Encoder_Right-(float)oldposition_Encoder_Right) * 1000.0 /(((float)newtime_Encoder_Right-(float)oldtime_Encoder_Right)*12.0*47.0);
+    vel_tire_Left = ((float)newposition_Encoder_Left-(float)oldposition_Encoder_Left) * 1000.0 /(((float)newtime_Encoder_Left-(float)oldtime_Encoder_Left)*12.0*47.0);
+    Serial.print ("speed Right= ");
+    Serial.println (vel_tire_Right*2*3.1415*0.035);
+    Serial.print ("speed Left= ");
+    Serial.println (vel_tire_Left*2*3.1415*0.035);
+    oldposition_Encoder_Right = newposition_Encoder_Right;
+    oldtime_Encoder_Right = newtime_Encoder_Right;
+    oldposition_Encoder_Left = newposition_Encoder_Left;
+    oldtime_Encoder_Left = newtime_Encoder_Left;
+    ulNextTime += 5;
+  }
+  
   sprintf(acMsg,"%f", headerAngle);
   oClient.publish("Niklas/HeaderAngle", &acMsg[0]);
   sprintf(acMsg,"%f", timeMultiplier);
