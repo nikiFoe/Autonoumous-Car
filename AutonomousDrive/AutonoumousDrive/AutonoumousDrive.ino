@@ -47,7 +47,7 @@ int lastDistance = 0;
 float timeMultiplier = 1.0;
 long lastTimeNormal = 0;
 
-const int dutyCyclemax = 100;
+const int dutyCyclemax = 190;
 const int dutyCyclemin = 80;
 const int dutyCycleControlFactor = dutyCyclemax/100;
 
@@ -81,7 +81,19 @@ unsigned long oldtime_Encoder_Left = 0;
 float vel_tire_Left;
 volatile int interrupts_A_Left = 0;
 
-
+//PID constants
+double kp = 105.0;//30.45; //Big  80
+double ki = 0.002;//2.0;//0.02; //Small 0.002
+double kd = 5000.0;
+//PID variables
+unsigned long currentTime, previousTime;
+double elapsedTime;
+double error;
+double lastError;
+double input, output, setPoint;
+double cumError, rateError;
+double Setpoint = 0.0;
+bool pidController = false;
 
 WiFiClient oEspClient;
 PubSubClient oClient(oEspClient);
@@ -208,16 +220,15 @@ void loop() {
   for (int i = 0; i < sensorCount; i++) {
       distances[i] = sensor[i].readRangeSingleMillimeters();
       if (distances[i] == 65535) distances[i] = -1; //failed to measure distance
-      if (distances[i] >= 8190) distances[i] = 0;   
+      if (distances[i] >= 8190) distances[i] = 600;   
+      
   }
-
   distanceRightBack = distances[2];
   distanceRight = distances[0];
   distanceLeft = distances[1];
-  
   //}  
   headerAngle = atan2((float)(distanceRightBack-distanceRight), 70.0)*180.0/3.1415; 
-  Serial.print("Header Angle: "); Serial.println(headerAngle);
+  //Serial.println("Header Angle: "); Serial.println(headerAngle);
   
 
   //Serial.print("Distance (mm): "); Serial.println(distance);
@@ -257,28 +268,53 @@ void loop() {
     pmwSlow = 60;
   }
 
-
-  if (true){
-    //Serial.println("Motor On");
-    if(distance>= -2.0 && distance<=2.0){
-      pmwRight = dutyCyclemax;
-      pmwLeft = dutyCyclemax;
-    }else if(distance < -2.0){
-      pmwRight = pmwFast;
-      pmwLeft = pmwSlow;
-    } else if (distance > 2.0){
-      pmwLeft = pmwFast;
-      pmwRight = pmwSlow;
+  //Control DIY
+  if (pidController){
+    if (true){
+      //Serial.println("Motor On");
+      if(distance>= -2.0 && distance<=2.0){
+        pmwRight = dutyCyclemax;
+        pmwLeft = dutyCyclemax;
+      }else if(distance < -2.0){
+        pmwRight = pmwFast;
+        pmwLeft = pmwSlow;
+      } else if (distance > 2.0){
+        pmwLeft = pmwFast;
+        pmwRight = pmwSlow;
+      }
+    }else{
+      pmwRight = 0;
+      pmwLeft = 0;
     }
   }else{
-    pmwRight = 0;
-    pmwLeft = 0;
+    input = distance;
+    //Serial.print("PID Input ");Serial.println(input); 
+    output = computePID(input);  
+    Serial.print("PID Output ");Serial.println(output); 
+    Serial.println("");
+    if(output<0){
+      pmwLeft = dutyCyclemax + abs(output);
+      pmwRight = dutyCyclemax - abs(output);
+    }else{
+      pmwLeft = dutyCyclemax - abs(output);
+      pmwRight = dutyCyclemax + abs(output);
+    }
+  }
+
+  if (pmwFast > 255){
+    pmwFast = 255;
+  }
+  if (pmwSlow < 60){
+    pmwSlow = 60;
   }
   ledcWrite(pwmChannel_Right, pmwRight);
   ledcWrite(pwmChannel_Left, pmwLeft);
   //Serial.print("PMW Right");Serial.println(pmwRight);
   //Serial.print("PMW Left");Serial.println(pmwLeft);
   
+
+
+
 
   //Calculate Tire Speed with Encoder Data
   long ulTime= millis();
@@ -290,10 +326,13 @@ void loop() {
     newtime_Encoder_Left = millis();
     vel_tire_Right = ((float)newposition_Encoder_Right-(float)oldposition_Encoder_Right) * 1000.0 /(((float)newtime_Encoder_Right-(float)oldtime_Encoder_Right)*12.0*47.0);
     vel_tire_Left = ((float)newposition_Encoder_Left-(float)oldposition_Encoder_Left) * 1000.0 /(((float)newtime_Encoder_Left-(float)oldtime_Encoder_Left)*12.0*47.0);
-    Serial.print ("speed Right= ");
-    Serial.println (vel_tire_Right*2*3.1415*0.035);
-    Serial.print ("speed Left= ");
-    Serial.println (vel_tire_Left*2*3.1415*0.035);
+
+    vel_tire_Right=vel_tire_Right*2*3.1415*0.035;
+    vel_tire_Left=vel_tire_Left*2*3.1415*0.035;
+    //Serial.print ("speed Right= ");
+    //Serial.println (vel_tire_Right*2*3.1415*0.035);
+    //Serial.print ("speed Left= ");
+    //Serial.println (vel_tire_Left*2*3.1415*0.035);
     oldposition_Encoder_Right = newposition_Encoder_Right;
     oldtime_Encoder_Right = newtime_Encoder_Right;
     oldposition_Encoder_Left = newposition_Encoder_Left;
@@ -303,8 +342,12 @@ void loop() {
   
   sprintf(acMsg,"%f", headerAngle);
   oClient.publish("Niklas/HeaderAngle", &acMsg[0]);
-  sprintf(acMsg,"%f", timeMultiplier);
-  oClient.publish("Niklas/TimerMultiplier", &acMsg[0]);
+  //sprintf(acMsg,"%f", timeMultiplier);
+  //oClient.publish("Niklas/TimerMultiplier", &acMsg[0]);
+  sprintf(acMsg,"%f", vel_tire_Left);
+  oClient.publish("Niklas/VLeft", &acMsg[0]);
+  sprintf(acMsg,"%f", vel_tire_Right);
+  oClient.publish("Niklas/VRight", &acMsg[0]);
   sprintf(acMsg,"%f", distance);
   oClient.publish("Niklas/Distance",&acMsg[0]);
   sprintf(acMsg,"%f", pmwRight);
@@ -312,4 +355,22 @@ void loop() {
   sprintf(acMsg,"%f", pmwLeft);
   oClient.publish("Niklas/PmwLeft",&acMsg[0]);
   oClient.loop();
+}
+
+
+double computePID(double inp){     
+        currentTime = millis();                //get current time
+        elapsedTime = (double)(currentTime - previousTime);        //compute time elapsed from previous computation
+        
+        error = Setpoint - inp/1000;                                // determine error
+        cumError += error * elapsedTime;                // compute integral
+        rateError = (error - lastError)/elapsedTime;   // compute derivative
+
+        double out = kp*error + ki*cumError + kd*rateError;                //PID output               
+
+        lastError = error;                                //remember current error
+        previousTime = currentTime;                        //remember current time
+
+        
+        return out;                                        //have function return the PID output
 }
