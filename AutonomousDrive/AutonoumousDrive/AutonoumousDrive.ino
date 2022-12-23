@@ -82,9 +82,9 @@ float vel_tire_Left;
 volatile int interrupts_A_Left = 0;
 
 //PID constants
-double kp = 105.0;//30.45; //Big  80
-double ki = 0.002;//2.0;//0.02; //Small 0.002
-double kd = 5000.0;
+double kp = 4000.0;//30.45; //Big  80
+double ki = 0.000001;//2.0;//0.02; //Small 0.002
+double kd = 0.00001;
 //PID variables
 unsigned long currentTime, previousTime;
 double elapsedTime;
@@ -94,6 +94,14 @@ double input, output, setPoint;
 double cumError, rateError;
 double Setpoint = 0.0;
 bool pidController = false;
+
+
+//Support variables
+float beta = 0;
+float alpha = 0;
+float carWidth = 70; //mm
+float radiousCurve = 0;
+
 
 WiFiClient oEspClient;
 PubSubClient oClient(oEspClient);
@@ -189,8 +197,8 @@ void setup() {
 
    for (int i = 0; i < sensorCount; i++) {
     sensor[i].init();
-    sensor[i].setTimeout(50);
-    sensor[i].setMeasurementTimingBudget(100);
+    sensor[i].setTimeout(100);
+    //sensor[i].setMeasurementTimingBudget(100);
     Serial.print("Sensor ");
     Serial.print(i);
     Serial.println(" init");
@@ -222,10 +230,12 @@ void loop() {
       if (distances[i] == 65535) distances[i] = -1; //failed to measure distance
       if (distances[i] >= 8190) distances[i] = 600;   
       
+
   }
   distanceRightBack = distances[2];
   distanceRight = distances[0];
   distanceLeft = distances[1];
+  Serial.println(distanceLeft);
   //}  
   headerAngle = atan2((float)(distanceRightBack-distanceRight), 70.0)*180.0/3.1415; 
   //Serial.println("Header Angle: "); Serial.println(headerAngle);
@@ -258,7 +268,7 @@ void loop() {
   float pmwRight;
   float pmwLeft;
 
-  float pmwFast = dutyCyclemax + abs(distance)/(float)maxDistance*70*timeMultiplier*(dutyCycleControlFactor);
+  float pmwFast = dutyCyclemax + abs(distance)/(float)maxDistance*70*timeMultiplier*(dutyCycleControlFactor); // 500*70*1*0 = Kp = 3500
   float pmwSlow = dutyCyclemax -abs(distance)/(float)maxDistance*30*timeMultiplier*sq(dutyCycleControlFactor);
 
   if (pmwFast > 255){
@@ -295,18 +305,24 @@ void loop() {
     if(output<0){
       pmwLeft = dutyCyclemax + abs(output);
       pmwRight = dutyCyclemax - abs(output);
+
+      //VLeft and VRight Relation
+      //radiousCurve = 70/sin(headerAngle*3.1415/180);
+      //pmwLeft = pmwRight* (radiousCurve + carWidth)/radiousCurve;
     }else{
       pmwLeft = dutyCyclemax - abs(output);
       pmwRight = dutyCyclemax + abs(output);
+
+      //VLeft and VRight Relation
+      //radiousCurve = 70/sin(headerAngle*3.1415/180);
+      //pmwRight = pmwLeft* (radiousCurve + carWidth)/radiousCurve;
     }
   }
 
-  if (pmwFast > 255){
-    pmwFast = 255;
-  }
-  if (pmwSlow < 60){
-    pmwSlow = 60;
-  }
+  
+
+
+  
   ledcWrite(pwmChannel_Right, pmwRight);
   ledcWrite(pwmChannel_Left, pmwLeft);
   //Serial.print("PMW Right");Serial.println(pmwRight);
@@ -348,6 +364,7 @@ void loop() {
   oClient.publish("Niklas/VLeft", &acMsg[0]);
   sprintf(acMsg,"%f", vel_tire_Right);
   oClient.publish("Niklas/VRight", &acMsg[0]);
+  //sprintf(acMsg,"%f",radiousCurve);
   sprintf(acMsg,"%f", distance);
   oClient.publish("Niklas/Distance",&acMsg[0]);
   sprintf(acMsg,"%f", pmwRight);
@@ -362,7 +379,7 @@ double computePID(double inp){
         currentTime = millis();                //get current time
         elapsedTime = (double)(currentTime - previousTime);        //compute time elapsed from previous computation
         
-        error = Setpoint - inp/1000;                                // determine error
+        error = Setpoint - inp;                                // determine error
         cumError += error * elapsedTime;                // compute integral
         rateError = (error - lastError)/elapsedTime;   // compute derivative
 
